@@ -6,7 +6,7 @@ To run on a single GPU small debug run, example:
 $ python -m train.py --compile=False --eval_iters=10 --batch_size=8
 
 To run with DDP on 4 gpus on 1 node, example:
-$ torchrun --standalone --nproc_per_node=4 train.py
+$ torchrun --standalone --nproc_per_node=8 train.py
 
 To run with DDP on 4 gpus across 2 nodes, example:
 - Run on the first (master) node with example IP 123.456.123.456:
@@ -291,8 +291,8 @@ while True:
                     {
                         "iter": iter_num,
                         "tokens": iter_num * tokens_per_iter,
-                        "loss/train": losses["train"],
-                        "loss/val": losses["val"],
+                        "train/loss": losses["train"],
+                        "val/loss": losses["val"],
                         "lr": lr,
                         "mfu": running_mfu * 100,  # convert to percentage
                     }
@@ -311,8 +311,17 @@ while True:
                     "config": config,
                 }
                 print(f"saving checkpoint to {out_dir}")
-                torch.save(checkpoint, os.path.join(out_dir, "ckpt.pt"))
-                raw_model.export(os.path.join(out_dir, "model.bin"))
+                ckpt_file = os.path.join(out_dir, "ckpt.pt")
+                c_bin_file = os.path.join(out_dir, "model.bin")
+                torch.save(checkpoint, ckpt_file)
+                raw_model.export(c_bin_file)
+                if wandb_log:
+                    # save model to wandb as an Artifact
+                    artifact_name = f"{wandb.run.id}_model"
+                    at = wandb.Artifact(artifact_name, type="model", metadata=model_args)
+                    at.add_file(ckpt_file)
+                    # at.add_file(c_bin_file)
+                    wandb.log_artifact(at, aliases=[f"iter_num_{iter_num}"])
     if iter_num == 0 and eval_only:
         break
 
@@ -355,6 +364,10 @@ while True:
         print(
             f"{iter_num} | loss {lossf:.4f} | lr {lr:e} | {dt*1000:.2f}ms | mfu {running_mfu*100:.2f}%"
         )
+        if wandb_log:
+            wandb.log({"iter": iter_num, 
+                       "lossf": lossf, 
+                       "lr": lr, "mfu": running_mfu * 100})
     iter_num += 1
     local_iter_num += 1
 
