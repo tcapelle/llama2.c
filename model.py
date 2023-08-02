@@ -131,7 +131,7 @@ class Attention(nn.Module):
         self.dropout = args.dropout
 
         # use flash attention or a manual implementation?
-        self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
+        self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention') and args.flash
         if not self.flash:
             print("WARNING: using slow attention. Flash Attention requires PyTorch >= 2.0")
             mask = torch.full((1, 1, args.max_seq_len, args.max_seq_len), float("-inf"))
