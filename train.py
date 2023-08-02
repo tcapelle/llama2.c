@@ -217,10 +217,11 @@ def estimate_loss():
                 logits, loss = model(X, Y)
             losses[k] = loss.item()
         out[split] = losses.mean()
+    # compute metrics on last batch of validation
     inf_norm, kurtosis = model.compute_attention_metrics()
     for i, (norm, k) in enumerate(zip(inf_norm, kurtosis)):
-        wandb.log({f"attention_inf_norm_{i}": norm, 
-                   f"attention_kurtosis_{i}": k})
+        wandb.log({f"atten_inf_norm_{i}": norm, 
+                   f"atten_kurtosis_{i}": k})
     model.train()
     return out
 
