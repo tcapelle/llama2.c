@@ -422,7 +422,7 @@ class Transformer(nn.Module):
     
     def compute_attention_metrics(self) -> Tuple[List[float], List[float]]:
         "compute the max inf norm and kurtosis of the attention outputs"
-        outputs = [b.attention.output for b in self.layers]
+        outputs = [b.attention.output.cpu() for b in self.layers]
         k = [kurtosis(o.flatten()) for o in outputs]
         inf_norm = [o.abs().max().item() for o in outputs]
         return inf_norm, k
