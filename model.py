@@ -195,7 +195,7 @@ class Attention(nn.Module):
         output = self.resid_dropout(output)
         
         if not self.training:
-            self.output = output.detach().clone()
+            self.output = output
         return output
 
 
@@ -212,7 +212,7 @@ class FeedForward(nn.Module):
     def forward(self, x):
         output = self.dropout(self.w2(F.silu(self.w1(x)) * self.w3(x)))
         if not self.training:
-            self.output = output.detach().clone()
+            self.output = output
         return output
 
 
@@ -428,14 +428,14 @@ class Transformer(nn.Module):
     def compute_attention_metrics(self) -> Tuple[List[float], List[float]]:
         "compute the max inf norm and kurtosis of the attention outputs"
         outputs = [b.attention.output.cpu() for b in self.layers]
-        k = [kurtosis(o.flatten()) for o in outputs]
+        k = [kurtosis(o.flatten().half()) for o in outputs]
         inf_norm = [o.abs().max().item() for o in outputs]
         return inf_norm, k
     
     def compute_ffn_metrics(self) -> Tuple[List[float], List[float]]:
         "compute the max inf norm and kurtosis of the ffn outputs"
         outputs = [b.feed_forward.output.cpu() for b in self.layers]
-        k = [kurtosis(o.flatten()) for o in outputs]
+        k = [kurtosis(o.flatten().half()) for o in outputs]
         inf_norm = [o.abs().max().item() for o in outputs]
         return inf_norm, k
     

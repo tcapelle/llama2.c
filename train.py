@@ -6,7 +6,7 @@ To run on a single GPU small debug run, example:
 $ python -m train.py --compile=False --eval_iters=10 --batch_size=8
 
 To run with DDP on 4 gpus on 1 node, example:
-$ torchrun --standalone --nproc_per_node=8 train.py
+$ torchrun --standalone --nproc_per_node=4 train.py
 
 To run with DDP on 4 gpus across 2 nodes, example:
 - Run on the first (master) node with example IP 123.456.123.456:
@@ -49,7 +49,7 @@ wandb_log = True  # disabled by default
 wandb_project = "llamac"
 wandb_run_name = "run" + datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
 # data
-batch_size = 32  # if gradient_accumulation_steps > 1, this is the micro-batch size
+batch_size = 16  # if gradient_accumulation_steps > 1, this is the micro-batch size
 max_seq_len = 1024
 # model
 dim = 768
@@ -72,7 +72,7 @@ decay_lr = True  # whether to decay the learning rate
 warmup_iters = 1000  # how many steps to warm up for
 # system
 device = "cuda"  # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc., or try 'mps' on macbooks
-dtype = "float16"  # float32|bfloat16|float16
+dtype = "bfloat16"  # float32|bfloat16|float16
 compile = True  # use PyTorch 2.0 to compile the model to be faster
 # -----------------------------------------------------------------------------
 config_keys = [
@@ -220,14 +220,16 @@ def estimate_loss():
                 logits, loss = model(X, Y)
             losses[k] = loss.item()
         out[split] = losses.mean()
-    # compute metrics on last batch of validation
-    att_inf_norm, att_kurtosis = model.compute_attention_metrics()
-    ffn_inf_norm, ffn_kurtosis = model.compute_ffn_metrics()
-    for i, (att_norm, att_k, ffn_norm, ffn_k) in enumerate(zip(att_inf_norm, att_kurtosis, ffn_inf_norm, ffn_kurtosis)):
-        wandb.log({f"atten_inf_norm_{i}": att_norm, 
-                   f"atten_kurtosis_{i}": att_k,
-                   f"ffn_inf_norm_{i}": ffn_norm,
-                   f"ffn_kurtosis_{i}": ffn_k})
+    if wandb_log:
+        # compute metrics on last batch of validation
+        raw_model = model.module if ddp else model
+        att_inf_norm, att_kurtosis = raw_model.compute_attention_metrics()
+        ffn_inf_norm, ffn_kurtosis = raw_model.compute_ffn_metrics()
+        for i, (att_norm, att_k, ffn_norm, ffn_k) in enumerate(zip(att_inf_norm, att_kurtosis, ffn_inf_norm, ffn_kurtosis)):
+            wandb.log({f"atten_inf_norm_{i}": att_norm, 
+                    f"atten_kurtosis_{i}": att_k,
+                    f"ffn_inf_norm_{i}": ffn_norm,
+                    f"ffn_kurtosis_{i}": ffn_k})
     model.train()
     return out
 
