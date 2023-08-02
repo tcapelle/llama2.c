@@ -23,12 +23,14 @@ from contextlib import nullcontext
 from datetime import datetime
 from functools import partial
 
+
 import torch
 from model import Transformer, ModelArgs
 from torch.distributed import destroy_process_group, init_process_group
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 from tinystories import Task
+
 
 # -----------------------------------------------------------------------------
 # I/O
@@ -178,39 +180,6 @@ elif init_from == "resume":
     best_val_loss = checkpoint["best_val_loss"]
 model.to(device)
 
-#######################################################################
-#######################################################################
-def hook_fn(module, input, output):
-    "Hook function to store outputs in a .output attribute"
-    if hasattr(module, "max_att"):
-        module.max_att = max(output.detach().max(), module.max_att)
-    else:
-        module.max_att = output.detach().max()
-
-def add_hooks(model):
-    hook_handles = []
-    for b in model.layers:
-        hook_handles.append(b.attention.register_forward_hook(hook_fn))
-    return hook_handles
-
-def log_activations(model, split="train"):
-    model = model.module if ddp else model
-    if wandb_log and master_process:
-        for i, b in enumerate(model.layers):
-            wandb.log({f"{split}/max_att_{i}": b.attention.max_att.item()})
-
-def reset_att_max(model):
-    model = model.module if ddp else model
-    for b in model.layers:
-        b.attention.max_att = 0
-#######################################################################
-#######################################################################
-
-# handles = add_hooks(model)
-
-#######################################################################
-#######################################################################
-
 # initialize a GradScaler. If enabled=False scaler is a no-op
 scaler = torch.cuda.amp.GradScaler(enabled=(dtype == "float16"))
 
@@ -240,7 +209,6 @@ def estimate_loss():
     out = {}
     model.eval()
     for split in ["train", "val"]:
-        # reset_att_max(model)
         batch_iter = iter_batches(split)
         losses = torch.zeros(eval_iters)  # keep on CPU
         for k in range(eval_iters):
@@ -249,7 +217,10 @@ def estimate_loss():
                 logits, loss = model(X, Y)
             losses[k] = loss.item()
         out[split] = losses.mean()
-        # log_activations(model, split)
+    inf_norm, kurtosis = model.compute_attention_metrics()
+    for i, (norm, k) in enumerate(zip(inf_norm, kurtosis)):
+        wandb.log({f"attention_inf_norm_{i}": norm, 
+                   f"attention_kurtosis_{i}": k})
     model.train()
     return out
 
