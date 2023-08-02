@@ -20,6 +20,8 @@ class ModelArgs:
     norm_eps: float = 1e-5
     max_seq_len: int = 2048
     dropout: float = 0.0
+    softmax: str = "softmax"
+    flash: bool = False
 
 
 class RMSNorm(torch.nn.Module):
@@ -89,6 +91,28 @@ def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
         .reshape(bs, slen, n_kv_heads * n_rep, head_dim)
     )
 
+@torch.jit.script
+def surfmax(x: torch.Tensor, dim: int = -1): 
+    maxes = torch.max(x.detach(), dim, keepdim=True)[0]
+    x_exp = torch.exp(x-maxes)
+    x_exp_sum = torch.sum(x_exp, dim, keepdim=True)
+    output_custom = x_exp / (torch.exp(-maxes) + x_exp_sum) # << The key bit is the +torch.exp(-maxes)
+    return output_custom
+@torch.jit.script
+def softmax1(x: torch.Tensor, dim: int=-1):
+    maxes = torch.max(x.detach(), dim, keepdim=True)[0]
+    x_exp = torch.exp(x-maxes)
+    x_exp_sum = torch.sum(x_exp, dim, keepdim=True)
+    output_custom = x_exp / (1 + x_exp_sum) # << just + 1
+    return output_custom
+@torch.jit.script
+def powit(x: torch.Tensor, beta: float=2.0, dim:int=-1):
+    maxes = torch.max(x.detach(), dim, keepdim=True)[0]
+    x_exp = torch.pow(x - maxes, beta)
+    x_exp_sum = torch.sum(x_exp, dim, keepdim=True)
+    output_custom = x_exp / (1 + x_exp_sum)
+    return output_custom
+
 class Attention(nn.Module):
     def __init__(self, args: ModelArgs):
         super().__init__()
@@ -113,6 +137,9 @@ class Attention(nn.Module):
             mask = torch.full((1, 1, args.max_seq_len, args.max_seq_len), float("-inf"))
             mask = torch.triu(mask, diagonal=1)
             self.register_buffer("mask", mask)
+        
+        # custom softmax
+        self.softmax = args.softmax
 
     def forward(
         self,
@@ -147,7 +174,12 @@ class Attention(nn.Module):
             # manual implementation
             scores = torch.matmul(xq, xk.transpose(2, 3)) / math.sqrt(self.head_dim)
             scores = scores + self.mask[:, :, :seqlen, :seqlen]   # (bs, n_local_heads, seqlen, cache_len + seqlen)
-            scores = F.softmax(scores.float(), dim=-1).type_as(xq)
+            if self.softmax == "softmax1":
+                scores = softmax1(scores.float(), dim=-1).type_as(xq)
+            elif self.softmax == "surfmax":
+                scores = surfmax(scores.float(), dim=-1).type_as(xq)
+            else:
+                scores = F.softmax(scores.float(), dim=-1).type_as(xq)
             scores = self.attn_dropout(scores)
             output = torch.matmul(scores, xv)  # (bs, n_local_heads, seqlen, head_dim)
 

@@ -37,23 +37,25 @@ eval_interval = 2000
 log_interval = 1
 eval_iters = 100
 eval_only = False  # if True, script exits right after the first eval
-always_save_checkpoint = False  # if True, always save a checkpoint after each eval
+always_save_checkpoint = True  # if True, always save a checkpoint after each eval
 init_from = "scratch"  # 'scratch' or 'resume'
 # wandb logging
-wandb_log = False  # disabled by default
+wandb_log = True  # disabled by default
 wandb_project = "llamac"
 wandb_run_name = "run" + datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
 # data
-batch_size = 128  # if gradient_accumulation_steps > 1, this is the micro-batch size
-max_seq_len = 256
+batch_size = 32  # if gradient_accumulation_steps > 1, this is the micro-batch size
+max_seq_len = 1024
 # model
-dim = 288
-n_layers = 6
-n_heads = 6
+dim = 768
+n_layers = 12
+n_heads = 12
 multiple_of = 32
-dropout = 0.0
+dropout = 0.1
+softmax="softmax1"
+flash = False
 # adamw optimizer
-gradient_accumulation_steps = 4  # used to simulate larger batch sizes
+gradient_accumulation_steps = 8  # used to simulate larger batch sizes
 learning_rate = 5e-4  # max learning rate
 max_iters = 100000  # total number of training iterations
 weight_decay = 1e-1
@@ -173,6 +175,39 @@ elif init_from == "resume":
     iter_num = checkpoint["iter_num"]
     best_val_loss = checkpoint["best_val_loss"]
 model.to(device)
+
+#######################################################################
+#######################################################################
+def hook_fn(module, input, output):
+    "Hook function to store outputs in a .output attribute"
+    if hasattr(module, "max_att"):
+        module.max_att = max(output.detach().max(), module.max_att)
+    else:
+        module.max_att = output.detach().max()
+
+def add_hooks(model):
+    hook_handles = []
+    for b in model.layers:
+        hook_handles.append(b.attention.register_forward_hook(hook_fn))
+    return hook_handles
+
+def log_activations(model, split="train"):
+    model = model.module if ddp else model
+    if wandb_log:
+        for i, b in enumerate(model.layers):
+            wandb.log({f"{split}/max_att_{i}": b.attention.max_att.item()})
+
+def reset_att_max(model):
+    model = model.module if ddp else model
+    for b in model.layers:
+        b.attention.max_att = 0
+#######################################################################
+#######################################################################
+
+handles = add_hooks(model)
+
+#######################################################################
+#######################################################################
 
 # initialize a GradScaler. If enabled=False scaler is a no-op
 scaler = torch.cuda.amp.GradScaler(enabled=(dtype == "float16"))
