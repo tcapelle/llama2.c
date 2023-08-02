@@ -193,7 +193,7 @@ def add_hooks(model):
 
 def log_activations(model, split="train"):
     model = model.module if ddp else model
-    if wandb_log:
+    if wandb_log and master_process:
         for i, b in enumerate(model.layers):
             wandb.log({f"{split}/max_att_{i}": b.attention.max_att.item()})
 
@@ -238,6 +238,7 @@ def estimate_loss():
     out = {}
     model.eval()
     for split in ["train", "val"]:
+        reset_att_max(model)
         batch_iter = iter_batches(split)
         losses = torch.zeros(eval_iters)  # keep on CPU
         for k in range(eval_iters):
@@ -246,6 +247,7 @@ def estimate_loss():
                 logits, loss = model(X, Y)
             losses[k] = loss.item()
         out[split] = losses.mean()
+        log_activations(model, split)
     model.train()
     return out
 
