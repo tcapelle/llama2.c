@@ -14,6 +14,9 @@ $ torchrun --nproc_per_node=8 --nnodes=2 --node_rank=0 --master_addr=123.456.123
 - Run on the worker node:
 $ torchrun --nproc_per_node=8 --nnodes=2 --node_rank=1 --master_addr=123.456.123.456 --master_port=1234 train.py
 (If your cluster does not have Infiniband interconnect prepend NCCL_IB_DISABLE=1)
+
+# debugging
+python train.py --max_seq_len=128 --dim=256 --n_layers=4 --n_heads=4 --eval_interval=100
 """
 
 import math
@@ -218,10 +221,13 @@ def estimate_loss():
             losses[k] = loss.item()
         out[split] = losses.mean()
     # compute metrics on last batch of validation
-    inf_norm, kurtosis = model.compute_attention_metrics()
-    for i, (norm, k) in enumerate(zip(inf_norm, kurtosis)):
-        wandb.log({f"atten_inf_norm_{i}": norm, 
-                   f"atten_kurtosis_{i}": k})
+    att_inf_norm, att_kurtosis = model.compute_attention_metrics()
+    ffn_inf_norm, ffn_kurtosis = model.compute_ffn_metrics()
+    for i, (att_norm, att_k, ffn_norm, ffn_k) in enumerate(zip(att_inf_norm, att_kurtosis, ffn_inf_norm, ffn_kurtosis)):
+        wandb.log({f"atten_inf_norm_{i}": att_norm, 
+                   f"atten_kurtosis_{i}": att_k,
+                   f"ffn_inf_norm_{i}": ffn_norm,
+                   f"ffn_kurtosis_{i}": ffn_k})
     model.train()
     return out
 
