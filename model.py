@@ -2,9 +2,11 @@ import math
 import struct
 import inspect
 from dataclasses import dataclass
-from typing import Any, Optional, Tuple
+from typing import Any, Optional, Tuple, List
 
 import numpy as np
+from scipy.stats import kurtosis
+
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -189,6 +191,9 @@ class Attention(nn.Module):
         # final projection into the residual stream
         output = self.wo(output)
         output = self.resid_dropout(output)
+        
+        if not self.training:
+            self.output = output.detach().clone()
         return output
 
 
@@ -414,3 +419,10 @@ class Transformer(nn.Module):
         # write to binary file
         f.close()
         print(f"wrote {filepath}")
+    
+    def compute_attention_metrics(self) -> Tuple[List[float], List[float]]:
+        "compute the max inf norm and kurtosis of the attention outputs"
+        outputs = [b.attention.output for b in self.layers]
+        k = [kurtosis(o.flatten()) for o in outputs]
+        inf_norm = [o.abs().max().item() for o in outputs]
+        return inf_norm, k
