@@ -100,13 +100,15 @@ def surfmax(x: torch.Tensor, dim: int = -1):
     x_exp_sum = torch.sum(x_exp, dim, keepdim=True)
     output_custom = x_exp / (torch.exp(-maxes) + x_exp_sum) # << The key bit is the +torch.exp(-maxes)
     return output_custom
+
 @torch.jit.script
 def softmax1(x: torch.Tensor, dim: int=-1):
     maxes = torch.max(x.detach(), dim, keepdim=True)[0]
     x_exp = torch.exp(x-maxes)
     x_exp_sum = torch.sum(x_exp, dim, keepdim=True)
-    output_custom = x_exp / (1 + x_exp_sum) # << just + 1
+    output_custom = x_exp / (1e-3 + x_exp_sum) # << just + 1
     return output_custom
+
 @torch.jit.script
 def powit(x: torch.Tensor, beta: float=2.0, dim:int=-1):
     maxes = torch.max(x.detach(), dim, keepdim=True)[0]
